@@ -1,0 +1,63 @@
+services:
+  database:
+    image: postgres:15-alpine
+    environment:
+      POSTGRES_DB: main_db
+      POSTGRES_USER: app_user
+      POSTGRES_PASSWORD: securepassword
+    volumes:
+      - db_data:/var/lib/postgresql/data
+    networks:
+      - internal_net
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U app_user -d main_db"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  order-service:
+    build:
+      context: ./services/order-service
+      dockerfile: Containerfile
+    environment:
+      DATABASE_URL: postgres://app_user:securepassword@database:5432/main_db
+      PORT: 4000
+    networks:
+      - internal_net
+    depends_on:
+      database:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://localhost:4000/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  gateway-service:
+    build:
+      context: ./services/gateway-service
+      dockerfile: Containerfile
+    ports:
+      - "8080:8080"
+    environment:
+      ORDER_SERVICE_URL: http://order-service:4000
+      PORT: 8080
+    networks:
+      - internal_net
+      - public_net
+    depends_on:
+      order-service:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://localhost:8080/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+networks:
+  internal_net:
+    internal: true
+  public_net:
+
+volumes:
+  db_data:
